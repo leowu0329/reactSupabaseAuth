@@ -1,32 +1,34 @@
-// 初始化一個 Promise，確保全域在變數載入完成前不會搶先呼叫
 window.supabaseInitialized = (async function initSupabase() {
     let url = "";
     let key = "";
 
     try {
-        // 1. 嘗試讀取本地的 env.json
+        // 1. 先嘗試讀取本地開發環境的 env.json
         const response = await fetch('./env.json');
         if (response.ok) {
             const env = await response.json();
             url = env.SUPABASE_URL;
             key = env.SUPABASE_ANON_KEY;
+            console.log("成功動態載入本地環境變數 (env.json)");
         } else {
-            // 2. 如果讀不到（代表在 Vercel 環境中），嘗試從 Vercel 產生的全域變數或 window 中讀取
-            // Vercel 部署 HTML 時，若有設定 Environment Variables，可透過系統底層或以下標準全域變數對接
-            url = window.process?.env?.SUPABASE_URL || "";
-            key = window.process?.env?.SUPABASE_ANON_KEY || "";
+            // 2. 如果讀不到（代表在 Vercel 雲端環境），改向 Vercel 後端 API 請求環境變數
+            const vResponse = await fetch('/api/env');
+            if (vResponse.ok) {
+                const vEnv = await vResponse.json();
+                url = vEnv.SUPABASE_URL;
+                key = vEnv.SUPABASE_ANON_KEY;
+                console.log("成功動態載入 Vercel 雲端環境變數");
+            }
         }
     } catch (e) {
-        console.log("本地 env.json 不存在，切換至雲端生產環境變數");
+        console.warn("環境變數載入過程中發生異常，嘗試切換備用路由...", e);
     }
 
-    // 如果上面都抓不到，最後防線（相容 Vercel 注入的最佳實踐：由 Vercel Edge Server 或是環境替換）
-    // 這裡我們直接建立 Supabase Client
+    // 初始化 Supabase 客戶端
     const { createClient } = window.supabase;
     
     if (!url || !key) {
-        // 警告：如果都沒有，代表尚未在 Vercel 後台設定變數
-        console.error("錯誤：找不到 SUPABASE_URL 或 SUPABASE_ANON_KEY，請確認 Vercel 後台設定！");
+        console.error("錯誤：無法取得有效的 SUPABASE_URL 或 SUPABASE_ANON_KEY，請確認環境設定！");
     }
 
     const supabase = createClient(url, key);
