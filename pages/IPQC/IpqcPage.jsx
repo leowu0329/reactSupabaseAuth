@@ -3,28 +3,19 @@
 // ==========================================
 function safeDownloadExcel(wb, fileName) {
     try {
-        // 將活頁簿寫入為二進位字串
         const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
-        
-        // 將二進位字串轉換為 ArrayBuffer
         const buf = new ArrayBuffer(wbout.length);
         const view = new Uint8Array(buf);
         for (let i = 0; i < wbout.length; i++) {
             view[i] = wbout.charCodeAt(i) & 255;
         }
-        
-        // 封裝成標準的 Excel MIME 型態 Blob
         const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        
-        // 使用原生 URL 物件強行解鎖下載機制
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
         a.download = fileName;
         document.body.appendChild(a);
         a.click();
-        
-        // 清理記憶體
         setTimeout(() => {
             document.body.removeChild(a);
             window.URL.revokeObjectURL(url);
@@ -125,7 +116,6 @@ function SubTableManagerModal({ tableName, title, onClose, onRefreshOptions }) {
     const handleExportExcel = () => {
         const ws = XLSX.utils.json_to_sheet(records);
         const wb = XLSX.utils.book_new();
-        // 修正點 1：調整子表彈窗內的呼叫方式
         XLSX.utils.book_append_sheet(wb, ws, "Backup_Data");
         safeDownloadExcel(wb, `IPQC_SubTable_${tableName}.xlsx`);
     };
@@ -207,6 +197,9 @@ function SubTableManagerModal({ tableName, title, onClose, onRefreshOptions }) {
 // 主控制台頁面：IPQC 巡檢管理控制台
 // ==========================================
 function IpqcPage() {
+    // 引入全域 Auth 狀態，用以讀取登入者的暱稱資訊
+    const { userProfile } = window.useAuthStore ? window.useAuthStore() : { userProfile: null };
+
     const [ipqcRecords, setIpqcRecords] = React.useState([]);
     const [searchKeyword, setSearchKeyword] = React.useState('');
     const [currentPage, setCurrentPage] = React.useState(1);
@@ -232,7 +225,7 @@ function IpqcPage() {
         product_name: '',
         spec: '',
         quantity: 0,
-        inspector: '',
+        inspector: userProfile?.nickname || '', // 修正點：直接將預設檢驗員帶入登入者暱稱
         defect_classification: '',
         defect_status: '',
         handling_measures: '',
@@ -354,7 +347,6 @@ function IpqcPage() {
     const handleMainExcelExport = () => {
         const ws = XLSX.utils.json_to_sheet(ipqcRecords);
         const wb = XLSX.utils.book_new();
-        // 修正點 2：調整主控制面板「匯出備份」的呼叫方式
         XLSX.utils.book_append_sheet(wb, ws, "IPQC_Backup");
         safeDownloadExcel(wb, "IPQC_Inspection_Master_List.xlsx");
     };
@@ -404,6 +396,9 @@ function IpqcPage() {
         return pages;
     };
 
+    // 篩選正義廠品管課的人員，供檢驗員(Inspector)下拉選單使用
+    const qcOperators = operators.filter(op => op.department === '正義廠品管課');
+
     return (
         <div className="container-fluid p-4" style={{ minHeight: '100vh' }}>
             <div className="card shadow border-0 p-4">
@@ -419,7 +414,11 @@ function IpqcPage() {
                     <div className="d-flex gap-2">
                         <button className="btn btn-primary shadow-sm px-3" onClick={() => { 
                             setCurrentEditId(null); 
-                            setMainForm(initialFormState);
+                            // 點選新增時，動態刷新 initialFormState 確保能抓到最新登入者的暱稱
+                            setMainForm({
+                                ...initialFormState,
+                                inspector: userProfile?.nickname || ''
+                            });
                             setShowMainModal(true); 
                         }}><i className="bi bi-plus-circle-fill"></i> 新增紀錄</button>
                         <button className="btn btn-outline-success" onClick={handleMainExcelExport}><i className="bi bi-file-earmark-arrow-down"></i> 匯出備份</button>
@@ -584,10 +583,28 @@ function IpqcPage() {
                                         </select>
                                     </div>
 
+                                    {/* 修正點：將實際檢驗員 (Inspector) 由 <input> 改為過濾後的 <select> 下拉選單 */}
                                     <div className="col-md-6">
                                         <label className="form-label small fw-bold">實際檢驗員 (Inspector)</label>
-                                        <input type="text" className="form-control" placeholder="請填寫稽核工程師姓名" value={mainForm.inspector || ''} onChange={e => setMainForm({ ...mainForm, inspector: e.target.value })} />
+                                        <select 
+                                            className="form-select" 
+                                            value={mainForm.inspector || ''} 
+                                            onChange={e => setMainForm({ ...mainForm, inspector: e.target.value })}
+                                            required
+                                        >
+                                            <option value="">-- 請選取正義廠品管課檢驗員 --</option>
+                                            {qcOperators.map((op) => (
+                                                <option key={op.id} value={op.name}>
+                                                    {op.name}
+                                                </option>
+                                            ))}
+                                            {/* 防呆機制：若登入者暱稱不在篩選名單內，仍預設保留其顯示避免畫面空白 */}
+                                            {mainForm.inspector && !qcOperators.some(o => o.name === mainForm.inspector) && (
+                                                <option value={mainForm.inspector}>{mainForm.inspector} (目前登入者)</option>
+                                            )}
+                                        </select>
                                     </div>
+
                                     <div className="col-md-6">
                                         <label className="form-label small fw-bold">現況不良具體狀態</label>
                                         <input type="text" className="form-control" placeholder="如：表面刮傷 2mm" value={mainForm.defect_status || ''} onChange={e => setMainForm({ ...mainForm, defect_status: e.target.value })} />
