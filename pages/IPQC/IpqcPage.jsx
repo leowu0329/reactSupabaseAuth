@@ -1,4 +1,40 @@
 // ==========================================
+// 輔助函式：安全二進位 Blob 檔案下載器 (解決 BLOCKED_BY_CLIENT)
+// ==========================================
+function safeDownloadExcel(wb, fileName) {
+    try {
+        // 將活頁簿寫入為二進位字串
+        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
+        
+        // 將二進位字串轉換為 ArrayBuffer
+        const buf = new ArrayBuffer(wbout.length);
+        const view = new Uint8Array(buf);
+        for (let i = 0; i < wbout.length; i++) {
+            view[i] = wbout.charCodeAt(i) & 255;
+        }
+        
+        // 封裝成標準的 Excel MIME 型態 Blob
+        const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        
+        // 使用原生 URL 物件強行解鎖下載機制
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        
+        // 清理記憶體
+        setTimeout(() => {
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }, 100);
+    } catch (err) {
+        alert("資料打包失敗，錯誤原因: " + err.message);
+    }
+}
+
+// ==========================================
 // 關聯子表專用：整合型多功能 CRUD 模組彈窗元件
 // ==========================================
 function SubTableManagerModal({ tableName, title, onClose, onRefreshOptions }) {
@@ -26,7 +62,9 @@ function SubTableManagerModal({ tableName, title, onClose, onRefreshOptions }) {
         if (!error && data) setRecords(data);
     };
 
-    React.useEffect(() => { fetchRecords(); }, [tableName]);
+    React.useEffect(() => { 
+        fetchRecords(); 
+    }, [tableName]);
 
     const filtered = records.filter(r => 
         Object.values(r).some(v => String(v || '').toLowerCase().includes(search.toLowerCase()))
@@ -37,7 +75,6 @@ function SubTableManagerModal({ tableName, title, onClose, onRefreshOptions }) {
 
     const handleSave = async (e) => {
         e.preventDefault();
-        // 確保子表的數字型態正確
         const cleanedData = { ...formData };
         if (cleanedData.quantity) cleanedData.quantity = parseInt(cleanedData.quantity, 10) || 0;
         if (cleanedData.inspection_hours) cleanedData.inspection_hours = parseFloat(cleanedData.inspection_hours) || 0;
@@ -88,8 +125,9 @@ function SubTableManagerModal({ tableName, title, onClose, onRefreshOptions }) {
     const handleExportExcel = () => {
         const ws = XLSX.utils.json_to_sheet(records);
         const wb = XLSX.utils.book_new();
-        XLSX.book_append_sheet(wb, ws, "Backup_Data");
-        XLSX.writeFile(wb, `IPQC_SubTable_${tableName}.xlsx`);
+        // 修正點 1：調整子表彈窗內的呼叫方式
+        XLSX.utils.book_append_sheet(wb, ws, "Backup_Data");
+        safeDownloadExcel(wb, `IPQC_SubTable_${tableName}.xlsx`);
     };
 
     return (
@@ -164,7 +202,6 @@ function SubTableManagerModal({ tableName, title, onClose, onRefreshOptions }) {
         </div>
     );
 }
-
 
 // ==========================================
 // 主控制台頁面：IPQC 巡檢管理控制台
@@ -268,11 +305,9 @@ function IpqcPage() {
         setOrderSuggestions([]);
     };
 
-    // 核心修正：處理主表單提交，精確防禦 400 型態與 ID 對齊錯誤
     const handleMainSubmit = async (e) => {
         e.preventDefault();
         
-        // 轉換並建立乾淨且符合 PostgreSQL 資料庫型態的 Payload
         const submitPayload = {
             date: mainForm.date,
             time: mainForm.time,
@@ -282,7 +317,7 @@ function IpqcPage() {
             product_number: mainForm.product_number,
             product_name: mainForm.product_name,
             spec: mainForm.spec,
-            quantity: parseInt(mainForm.quantity, 10) || 0, // 確保為 int 型態
+            quantity: parseInt(mainForm.quantity, 10) || 0,
             inspector: mainForm.inspector,
             defect_classification: mainForm.defect_classification || null,
             defect_status: mainForm.defect_status,
@@ -291,7 +326,6 @@ function IpqcPage() {
         };
 
         if (currentEditId) {
-            // 編輯狀態：使用明確的 update 語法並指定特定 id，排除主鍵衝突
             const { error } = await window.supabaseClient
                 .from('ipqc_list')
                 .update(submitPayload)
@@ -302,7 +336,6 @@ function IpqcPage() {
                 return;
             }
         } else {
-            // 新增狀態
             const { error } = await window.supabaseClient
                 .from('ipqc_list')
                 .insert([submitPayload]);
@@ -321,8 +354,9 @@ function IpqcPage() {
     const handleMainExcelExport = () => {
         const ws = XLSX.utils.json_to_sheet(ipqcRecords);
         const wb = XLSX.utils.book_new();
-        XLSX.book_append_sheet(wb, ws, "IPQC_Backup");
-        XLSX.writeFile(wb, "IPQC_Inspection_Master_List.xlsx");
+        // 修正點 2：調整主控制面板「匯出備份」的呼叫方式
+        XLSX.utils.book_append_sheet(wb, ws, "IPQC_Backup");
+        safeDownloadExcel(wb, "IPQC_Inspection_Master_List.xlsx");
     };
 
     const handleMainExcelImport = (e) => {
@@ -433,7 +467,6 @@ function IpqcPage() {
                                     <td>{renderTruncatedText(row.remark)}</td>
                                     <td>
                                         <div className="btn-group btn-group-sm">
-                                            {/* 修正點：點擊編輯時明確快取目前記錄的 id 序號 */}
                                             <button type="button" className="btn btn-light border text-primary" onClick={() => { setCurrentEditId(row.id); setMainForm({ ...row }); setShowMainModal(true); }}><i className="bi bi-pencil-square"></i></button>
                                             <button type="button" className="btn btn-light border text-danger" onClick={() => handleDeleteMain(row.id)}><i className="bi bi-trash"></i></button>
                                         </div>
