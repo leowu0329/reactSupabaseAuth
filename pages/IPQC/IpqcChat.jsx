@@ -1,6 +1,6 @@
-// ==========================================
-// 數據中心視覺化圖表元件：不良分類分佈圖 (優化：單一長條圖代表當月不良總個數版)
-// ==========================================
+// =========================================================================
+// 數據中心視覺化看板元件：不良總數圖表 + 細項表 + 工單中心KPI統計表 (完整整合版)
+// =========================================================================
 function IpqcChat() {
     const canvasRef = React.useRef(null);
     const chartInstanceRef = React.useRef(null);
@@ -36,9 +36,9 @@ function IpqcChat() {
         const monthlyStats = {};
         months.forEach(m => {
             monthlyStats[m] = {
-                totalQty: 0,        // 檢驗數：當月巡檢紀錄總筆數
+                totalQty: 0,        // 檢驗數：當月巡檢紀錄總筆數 (分母)
                 totalDefects: 0,    // 不良數：當月有異常的不良總個數 (長條圖數據來源)
-                defectTypes: {}     // 各別不良分類細項的個數 (表格矩陣數據來源)
+                defectTypes: {}     // 各別不良分類細項的個數 (中間明細表來源)
             };
         });
 
@@ -49,7 +49,7 @@ function IpqcChat() {
             const normMonth = rec.date.replace(/-/g, '/').substring(0, 7);
             
             if (monthlyStats[normMonth]) {
-                // 累加該月份巡檢的「總紀錄筆數」(分母)
+                // 累加該月份巡檢的「總紀錄筆數」(分母概念)
                 monthlyStats[normMonth].totalQty += 1;
 
                 // 分析不良分類與細項狀態
@@ -59,9 +59,9 @@ function IpqcChat() {
                     const dfType = rawType.trim();
                     allDefectTypes.add(dfType);
                     
-                    // 關鍵修改：直接累加當月的不良總個數
+                    // 累加當月的不良總個數
                     monthlyStats[normMonth].totalDefects += 1;
-                    // 同步計算當月該不良分類細項的個數
+                    // 計算當月該不良分類細項的個數
                     monthlyStats[normMonth].defectTypes[dfType] = (monthlyStats[normMonth].defectTypes[dfType] || 0) + 1;
                 }
             }
@@ -79,26 +79,26 @@ function IpqcChat() {
         // 構建 Chart.js 所需的數據集
         const datasets = [];
 
-        // 1. 主座標 Y 軸 (左側)：只有唯一一組 Dataset，直接代表「當月不良總個數」
+        // 1. 主座標 Y 軸 (左側)：長條圖直接代表「當月不良總個數」
         const totalDefectPoints = months.map(m => monthlyStats[m].totalDefects);
         datasets.push({
             type: 'bar',
             label: '當月不良總個數',
             data: totalDefectPoints,
-            backgroundColor: 'rgba(54, 162, 235, 0.8)', // 經典質感藍
+            backgroundColor: 'rgba(54, 162, 235, 0.8)', // 專業藍
             borderColor: 'rgba(54, 162, 235, 1)',
             borderWidth: 1,
-            barPercentage: 0.5, // 適度縮放長條圖寬度，使其看起來飽滿專業
+            barPercentage: 0.45, // 調整長條寬度，視覺更飽滿
             yAxisID: 'yLeft',
             order: 2
         });
 
-        // 2. 副座標 Y 軸 (右側)：折線圖展示當月總不良率
+        // 2. 副座標 Y 軸 (右側)：折線圖展示精準總不良率 (2026/06 正確對齊 67%)
         const rateDataPoints = months.map(m => {
             const stats = monthlyStats[m];
             if (stats.totalQty === 0) return 0;
             const rate = stats.totalDefects / stats.totalQty;
-            return parseFloat((rate * 100).toFixed(2)); // 例如 2/3 筆 = 66.67%
+            return parseFloat((rate * 100).toFixed(2));
         });
 
         datasets.push({
@@ -169,7 +169,7 @@ function IpqcChat() {
                         grid: { display: false },
                         ticks: { font: { family: 'Noto Sans TC', weight: 'bold' } }
                     },
-                    // 主座標 Y 軸：計算當月的不良分類總個數 (0-10 固定分為 10 等分)
+                    // 主座標 Y 軸：計算當月的不良總個數 (0-10 固定分為 10 等分)
                     yLeft: {
                         type: 'linear',
                         position: 'left',
@@ -181,7 +181,7 @@ function IpqcChat() {
                             font: { weight: 'bold', family: 'Noto Sans TC' }
                         },
                         ticks: {
-                            stepSize: 1, // 固定步長 1 
+                            stepSize: 1, 
                             font: { family: 'Noto Sans TC' }
                         }
                     },
@@ -200,7 +200,7 @@ function IpqcChat() {
                             drawOnChartArea: false 
                         },
                         ticks: {
-                            stepSize: 10, // 固定步長 10%
+                            stepSize: 10, 
                             callback: function(value) { return value + '%'; },
                             font: { family: 'Noto Sans TC' }
                         }
@@ -253,12 +253,12 @@ function IpqcChat() {
                 </div>
             )}
             
-            {/* 上方雙座標圖表 */}
+            {/* 1. 上方雙座標主圖表 (顯示總個數與總不良率) */}
             <div style={{ position: 'relative', height: '320px', width: '100%' }}>
                 <canvas ref={canvasRef}></canvas>
             </div>
 
-            {/* 下方動態數據矩陣對照表：依然精準保留各分類細項 */}
+            {/* 2. 中間：動態數據異常分類細項對照表 */}
             {!loading && defectTypes.length > 0 && (
                 <div className="table-responsive mt-3 border rounded shadow-sm bg-white">
                     <table className="table table-sm table-bordered text-center align-middle mb-0 small">
@@ -295,7 +295,18 @@ function IpqcChat() {
             
             {!loading && defectTypes.length === 0 && (
                 <div className="text-center text-muted small mt-4 p-2 border border-dashed rounded">
-                    💡 近三個月內無任何巡檢異常不良紀錄，製程良率表現優良。
+                    💡 近三個月內無 any 巡檢異常不良紀錄，製程良率表現優良。
+                </div>
+            )}
+
+            {/* 3. 🎯 下方內嵌整合：工單中心近半年 (2026-01 ~ 2026-06) KPI 品質績效交叉統計表 */}
+            {!loading && window.IpqcStatistics && (
+                <div className="mt-2">
+                    <div className="fw-bold text-dark small mb-1 mt-4">
+                        <i className="bi bi-grid-fill text-primary me-1"></i> 2026上半年工單中心KPI品質績效統計
+                    </div>
+                    {/* 動態調用自獨立檔案註冊至 window 的統計元件 */}
+                    <window.IpqcStatistics />
                 </div>
             )}
         </div>
